@@ -1,17 +1,23 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Upload, X, Image as ImageIcon, Loader2, Eye } from 'lucide-react';
 import Image from 'next/image';
 import { useAppStore } from '@/lib/store';
 import { generate3DOnly, getMeshUrl } from '@/lib/api';
 import toast from 'react-hot-toast';
 
+type ViewType = 'front' | 'left' | 'back';
+
 export function ImageUpload() {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [leftImage, setLeftImage] = useState<string | null>(null);
+  const [backImage, setBackImage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null!);
+  const leftInputRef = useRef<HTMLInputElement>(null!);
+  const backInputRef = useRef<HTMLInputElement>(null!);
 
   const removeBackground = useAppStore((state) => state.removeBackground);
   const foregroundRatio = useAppStore((state) => state.foregroundRatio);
@@ -21,7 +27,9 @@ export function ImageUpload() {
   const backendConnected = useAppStore((state) => state.backendConnected);
   const setGenerationResult = useAppStore((state) => state.setGenerationResult);
 
-  const handleFile = useCallback((file: File) => {
+  const isMultiView = engine3d === 'hunyuan3d_mv';
+
+  const handleFileForView = useCallback((file: File, view: ViewType) => {
     if (!file.type.startsWith('image/')) {
       toast.error('画像ファイルを選択してください');
       return;
@@ -30,12 +38,21 @@ export function ImageUpload() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
-      // Extract base64 data (remove data:image/...;base64, prefix)
       const base64 = result.split(',')[1];
-      setUploadedImage(base64);
+      if (view === 'front') {
+        setUploadedImage(base64);
+      } else if (view === 'left') {
+        setLeftImage(base64);
+      } else if (view === 'back') {
+        setBackImage(base64);
+      }
     };
     reader.readAsDataURL(file);
   }, []);
+
+  const handleFile = useCallback((file: File) => {
+    handleFileForView(file, 'front');
+  }, [handleFileForView]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -64,16 +81,31 @@ export function ImageUpload() {
     if (file) handleFile(file);
   };
 
-  const clearImage = () => {
-    setUploadedImage(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  const clearImage = (view: ViewType = 'front') => {
+    if (view === 'front') {
+      setUploadedImage(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } else if (view === 'left') {
+      setLeftImage(null);
+      if (leftInputRef.current) leftInputRef.current.value = '';
+    } else if (view === 'back') {
+      setBackImage(null);
+      if (backInputRef.current) backInputRef.current.value = '';
     }
+  };
+
+  const clearAllImages = () => {
+    setUploadedImage(null);
+    setLeftImage(null);
+    setBackImage(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (leftInputRef.current) leftInputRef.current.value = '';
+    if (backInputRef.current) backInputRef.current.value = '';
   };
 
   const handleGenerate3D = async () => {
     if (!uploadedImage) {
-      toast.error('画像をアップロードしてください');
+      toast.error('正面画像をアップロードしてください');
       return;
     }
 
@@ -85,10 +117,13 @@ export function ImageUpload() {
     setIsGenerating(true);
 
     try {
-      toast('3Dモデルを生成中...', { icon: '🧊' });
+      const engineLabel = isMultiView ? 'マルチビュー3Dモデル' : '3Dモデル';
+      toast(`${engineLabel}を生成中...`, { icon: '🧊' });
 
       const result = await generate3DOnly({
         image: uploadedImage,
+        image_left: leftImage || undefined,
+        image_back: backImage || undefined,
         remove_background: removeBackground,
         foreground_ratio: foregroundRatio,
         mc_resolution: mcResolution,
@@ -120,12 +155,70 @@ export function ImageUpload() {
     }
   };
 
+  // Helper component for multi-view upload slots
+  const MultiViewSlot = ({ view, image, inputRef, label }: {
+    view: ViewType;
+    image: string | null;
+    inputRef: React.RefObject<HTMLInputElement>;
+    label: string;
+  }) => (
+    <div className="flex flex-col gap-2">
+      <label className="text-sm font-medium text-slate-600 flex items-center gap-1">
+        <Eye size={14} />
+        {label}
+        {view === 'front' && <span className="text-red-500">*</span>}
+      </label>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFileForView(file, view);
+        }}
+        className="hidden"
+      />
+      {image ? (
+        <div className="relative aspect-square rounded-lg overflow-hidden bg-slate-50 border border-slate-200">
+          <Image
+            src={`data:image/png;base64,${image}`}
+            alt={`${label}画像`}
+            fill
+            className="object-contain"
+          />
+          <button
+            onClick={() => clearImage(view)}
+            className="absolute top-1 right-1 p-1.5 bg-white/90 hover:bg-white rounded-full shadow transition-all"
+          >
+            <X size={12} className="text-slate-600" />
+          </button>
+        </div>
+      ) : (
+        <div
+          onClick={() => inputRef.current?.click()}
+          className="aspect-square rounded-lg border-2 border-dashed border-slate-300 bg-slate-50
+                     hover:border-primary-400 hover:bg-slate-100 cursor-pointer
+                     flex flex-col items-center justify-center gap-1 transition-all"
+        >
+          <Upload size={16} className="text-slate-400" />
+          <span className="text-xs text-slate-400">{view === 'front' ? '必須' : '任意'}</span>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="bg-white rounded-2xl shadow-card border border-slate-100 p-6">
       <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
         <Upload className="text-primary-500" size={20} />
-        画像から3Dモデル生成
+        {isMultiView ? 'マルチビュー画像から3Dモデル生成' : '画像から3Dモデル生成'}
       </h2>
+
+      {isMultiView && (
+        <p className="text-sm text-slate-500 mb-4">
+          複数視点の画像を使用すると、より精度の高い3Dモデルが生成されます。正面画像は必須です。
+        </p>
+      )}
 
       <input
         ref={fileInputRef}
@@ -135,7 +228,37 @@ export function ImageUpload() {
         className="hidden"
       />
 
-      {uploadedImage ? (
+      {isMultiView ? (
+        /* Multi-view mode: show 3 upload slots */
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <MultiViewSlot view="front" image={uploadedImage} inputRef={fileInputRef} label="正面" />
+            <MultiViewSlot view="left" image={leftImage} inputRef={leftInputRef} label="左側" />
+            <MultiViewSlot view="back" image={backImage} inputRef={backInputRef} label="背面" />
+          </div>
+
+          <button
+            onClick={handleGenerate3D}
+            disabled={isGenerating || !backendConnected || !uploadedImage}
+            className="w-full bg-gradient-to-r from-accent-violet to-accent-pink text-white font-semibold py-3 px-6 rounded-xl
+                       hover:opacity-90 transition-all shadow-button disabled:opacity-50 disabled:cursor-not-allowed
+                       flex items-center justify-center gap-2"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="animate-spin" size={20} />
+                マルチビュー3Dモデル生成中...
+              </>
+            ) : (
+              <>
+                <ImageIcon size={20} />
+                マルチビュー3Dモデルを生成
+              </>
+            )}
+          </button>
+        </div>
+      ) : uploadedImage ? (
+        /* Single image mode with uploaded image */
         <div className="space-y-4">
           <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-200">
             <Image
@@ -145,7 +268,7 @@ export function ImageUpload() {
               className="object-contain"
             />
             <button
-              onClick={clearImage}
+              onClick={() => clearImage('front')}
               className="absolute top-2 right-2 p-2 bg-white/90 hover:bg-white rounded-full shadow-lg transition-all"
             >
               <X size={16} className="text-slate-600" />
@@ -173,6 +296,7 @@ export function ImageUpload() {
           </button>
         </div>
       ) : (
+        /* Single image mode: empty state */
         <div
           onClick={handleClick}
           onDrop={handleDrop}

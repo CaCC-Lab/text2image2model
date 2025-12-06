@@ -15,6 +15,8 @@ interface GenerationResult {
   engine3d?: string;
 }
 
+export type InputMode = 'text' | 'image';
+
 interface AppState {
   // Input state
   prompt: string;
@@ -27,8 +29,10 @@ interface AppState {
   meshQuality: MeshQualityType;
 
   // UI state
+  inputMode: InputMode;  // 'text' or 'image' input mode
   isLoading: boolean;
   generationStage: 'idle' | 'image' | '3d';  // Progressive generation stage
+  isSegmenting: boolean;  // Part segmentation in progress
   error: string | null;
   backendConnected: boolean;
 
@@ -37,6 +41,8 @@ interface AppState {
   processedImage: string | null;
   meshObjUrl: string | null;
   meshGlbUrl: string | null;
+  segmentedMeshUrl: string | null;  // P3-SAM segmented mesh
+  partCount: number | null;  // Number of detected parts
   processingTime: number | null;
 
   // History
@@ -51,12 +57,15 @@ interface AppState {
   setEngine3d: (engine: Engine3DType) => void;
   setImageEngine: (engine: ImageEngineType) => void;
   setMeshQuality: (quality: MeshQualityType) => void;
+  setInputMode: (mode: InputMode) => void;
   setIsLoading: (value: boolean) => void;
   setGenerationStage: (stage: 'idle' | 'image' | '3d') => void;
   setError: (error: string | null) => void;
   setGeneratedImage: (image: string | null) => void;
   setBackendConnected: (value: boolean) => void;
   setGenerationResult: (result: GenerationResult) => void;
+  setIsSegmenting: (value: boolean) => void;
+  setSegmentedMesh: (url: string | null, partCount: number | null) => void;
   clearResult: () => void;
   reset: () => void;
 }
@@ -71,14 +80,18 @@ export const useAppStore = create<AppState>((set) => ({
   engine3d: 'hunyuan3d',
   imageEngine: 'sdxl',
   meshQuality: 'balanced',
+  inputMode: 'text',
   isLoading: false,
   generationStage: 'idle',
+  isSegmenting: false,
   error: null,
   backendConnected: false,
   generatedImage: null,
   processedImage: null,
   meshObjUrl: null,
   meshGlbUrl: null,
+  segmentedMeshUrl: null,
+  partCount: null,
   processingTime: null,
   history: [],
 
@@ -91,6 +104,13 @@ export const useAppStore = create<AppState>((set) => ({
   setEngine3d: (engine3d) => set({ engine3d }),
   setImageEngine: (imageEngine) => set({ imageEngine }),
   setMeshQuality: (meshQuality) => set({ meshQuality }),
+  setInputMode: (inputMode) => set((state) => {
+    // If switching to text mode and MV engine is selected, switch to hunyuan3d
+    if (inputMode === 'text' && state.engine3d === 'hunyuan3d_mv') {
+      return { inputMode, engine3d: 'hunyuan3d' };
+    }
+    return { inputMode };
+  }),
   setIsLoading: (isLoading) => set({ isLoading }),
   setGenerationStage: (generationStage) => set({ generationStage }),
   setError: (error) => set({ error }),
@@ -104,8 +124,14 @@ export const useAppStore = create<AppState>((set) => ({
       meshObjUrl: result.meshObjUrl,
       meshGlbUrl: result.meshGlbUrl,
       processingTime: result.processingTime,
+      segmentedMeshUrl: null,  // Clear segmented mesh when new generation
+      partCount: null,
       history: [...state.history.slice(-9), result], // Keep last 10
     })),
+
+  setIsSegmenting: (isSegmenting) => set({ isSegmenting }),
+
+  setSegmentedMesh: (segmentedMeshUrl, partCount) => set({ segmentedMeshUrl, partCount }),
 
   clearResult: () =>
     set({
@@ -113,6 +139,8 @@ export const useAppStore = create<AppState>((set) => ({
       processedImage: null,
       meshObjUrl: null,
       meshGlbUrl: null,
+      segmentedMeshUrl: null,
+      partCount: null,
       processingTime: null,
       error: null,
     }),
@@ -127,13 +155,17 @@ export const useAppStore = create<AppState>((set) => ({
       engine3d: 'hunyuan3d',
       imageEngine: 'sdxl',
       meshQuality: 'balanced',
+      inputMode: 'text',
       isLoading: false,
       generationStage: 'idle',
+      isSegmenting: false,
       error: null,
       generatedImage: null,
       processedImage: null,
       meshObjUrl: null,
       meshGlbUrl: null,
+      segmentedMeshUrl: null,
+      partCount: null,
       processingTime: null,
     }),
 }));

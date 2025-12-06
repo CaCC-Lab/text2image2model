@@ -24,6 +24,8 @@ from .models import (
     HealthResponse,
     ConfigResponse,
     ErrorResponse,
+    PartSegmentationRequest,
+    PartSegmentationResponse,
 )
 from . import worker
 
@@ -136,7 +138,7 @@ async def get_config():
         default_mc_resolution=settings.default_mc_resolution,
         mc_resolution_range={"min": 32, "max": 512, "step": 32},
         foreground_ratio_range={"min": 0.5, "max": 1.0, "step": 0.05},
-        available_3d_engines=["triposr", "hunyuan3d", "tripo_api"],
+        available_3d_engines=["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api"],
         available_image_engines=["sdxl", "dalle", "gemini"],
         default_image_engine=settings.default_image_engine,
         default_3d_engine=settings.default_3d_engine,
@@ -245,10 +247,13 @@ async def generate_3d_only(request: ThreeDOnlyRequest):
     worker.task_queue.put({
         "type": "3d_only",
         "image": request.image,
+        "image_left": request.image_left,
+        "image_back": request.image_back,
         "remove_background": request.remove_background,
         "foreground_ratio": request.foreground_ratio,
         "mc_resolution": request.mc_resolution,
         "engine_3d": request.engine_3d,
+        "mesh_quality": request.mesh_quality,
     })
 
     try:
@@ -274,6 +279,58 @@ async def generate_3d_only(request: ThreeDOnlyRequest):
         mesh_glb_url=f"/api/models/{glb_filename}",
         processing_time=result["processing_time"],
         engine_3d=result.get("engine_3d"),
+    )
+
+
+# Part segmentation (post-processing)
+@app.post("/api/segment-parts", response_model=PartSegmentationResponse, tags=["Generation"])
+async def segment_parts(request: PartSegmentationRequest):
+    """Segment a 3D mesh into parts using P3-SAM (post-processing step)."""
+    if not worker.is_worker_running():
+        raise HTTPException(status_code=503, detail="Worker not running")
+
+    if worker.task_queue is None or worker.result_queue is None:
+        raise HTTPException(status_code=503, detail="Worker queues not initialized")
+
+    # Extract filename from URL
+    mesh_url = request.mesh_glb_url
+    filename = mesh_url.split("/")[-1]
+
+    if filename not in mesh_files:
+        raise HTTPException(status_code=404, detail="Mesh not found. Generate a 3D model first.")
+
+    mesh_path = mesh_files[filename]
+    if not os.path.exists(mesh_path):
+        raise HTTPException(status_code=404, detail="Mesh file not found on disk")
+
+    logger.info(f"Part segmentation request for: {filename}")
+
+    worker.task_queue.put({
+        "type": "segment_parts",
+        "mesh_path": mesh_path,
+        "post_process": request.post_process,
+        "seed": request.seed,
+    })
+
+    try:
+        # 10 minute timeout for part segmentation
+        result = worker.result_queue.get(timeout=600)
+    except Exception as e:
+        logger.error(f"Part segmentation timeout: {e}")
+        raise HTTPException(status_code=504, detail="Part segmentation timeout")
+
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
+
+    # Store segmented mesh path
+    segmented_filename = Path(result["segmented_mesh_path"]).name
+    mesh_files[segmented_filename] = result["segmented_mesh_path"]
+
+    return PartSegmentationResponse(
+        success=True,
+        segmented_mesh_url=f"/api/models/{segmented_filename}",
+        part_count=result.get("part_count"),
+        processing_time=result["processing_time"],
     )
 
 

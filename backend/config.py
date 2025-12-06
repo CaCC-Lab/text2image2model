@@ -23,9 +23,10 @@ class Settings(BaseSettings):
     lightning_repo: str = "ByteDance/SDXL-Lightning"
     triposr_model: str = "stabilityai/TripoSR"
     hunyuan3d_model: str = "tencent/Hunyuan3D-2"
+    hunyuan3d_mv_model: str = "tencent/Hunyuan3D-2mv"  # Multi-view model
 
     # 3D Engine settings
-    default_3d_engine: Literal["triposr", "hunyuan3d", "tripo_api"] = "hunyuan3d"
+    default_3d_engine: Literal["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api"] = "hunyuan3d"
 
     # Image generation settings
     default_image_engine: Literal["sdxl", "dalle", "gemini"] = "sdxl"
@@ -34,6 +35,8 @@ class Settings(BaseSettings):
     tripo_api_key: str = ""  # Tripo3D API key for cloud 3D generation
     openai_api_key: str = ""  # OpenAI API key for DALL-E image generation
     gemini_api_key: str = ""  # Google Gemini API key for image generation
+    hunyuan_secret_id: str = ""  # Tencent Cloud SecretID for Hunyuan API
+    hunyuan_secret_key: str = ""  # Tencent Cloud SecretKey for Hunyuan API
 
     # Generation defaults
     default_checkpoint: Literal["1-Step", "2-Step", "4-Step", "8-Step"] = "4-Step"

@@ -101,6 +101,8 @@ export async function generateImageOnly(request: {
  */
 export async function generate3DOnly(request: {
   image: string;
+  image_left?: string;  // Multi-view: left image
+  image_back?: string;  // Multi-view: back image
   remove_background: boolean;
   foreground_ratio: number;
   mc_resolution: number;
@@ -126,4 +128,37 @@ export async function generate3DOnly(request: {
  */
 export function getMeshUrl(path: string): string {
   return `${API_URL}${path}`;
+}
+
+/**
+ * Part segmentation response
+ */
+export interface PartSegmentationResponse {
+  success: boolean;
+  segmented_mesh_url?: string;
+  part_count?: number;
+  processing_time?: number;
+  error?: string;
+}
+
+/**
+ * Segment 3D mesh into parts using P3-SAM (post-processing)
+ */
+export async function segmentParts(request: {
+  mesh_glb_url: string;
+  post_process?: boolean;
+  seed?: number;
+}): Promise<PartSegmentationResponse> {
+  try {
+    const response = await api.post<PartSegmentationResponse>('/api/segment-parts', request);
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const axiosError = error as AxiosError<ErrorResponse>;
+      if (axiosError.response?.data?.detail) {
+        throw new Error(axiosError.response.data.detail);
+      }
+    }
+    throw new Error('Part segmentation failed');
+  }
 }

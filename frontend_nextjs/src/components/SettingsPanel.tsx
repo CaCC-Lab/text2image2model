@@ -22,9 +22,14 @@ export function SettingsPanel() {
   const setImageEngine = useAppStore((state) => state.setImageEngine);
   const meshQuality = useAppStore((state) => state.meshQuality);
   const setMeshQuality = useAppStore((state) => state.setMeshQuality);
+  const inputMode = useAppStore((state) => state.inputMode);
 
   const checkpoints = Object.keys(CHECKPOINT_INFO) as CheckpointType[];
-  const engines = Object.keys(ENGINE_3D_INFO) as Engine3DType[];
+  // Filter out MV engine when in text mode (MV requires image upload)
+  const allEngines = Object.keys(ENGINE_3D_INFO) as Engine3DType[];
+  const engines = inputMode === 'text'
+    ? allEngines.filter(e => e !== 'hunyuan3d_mv')
+    : allEngines;
   const imageEngines = Object.keys(IMAGE_ENGINE_INFO) as ImageEngineType[];
   const meshQualities = Object.keys(MESH_QUALITY_INFO) as MeshQualityType[];
 

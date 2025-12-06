@@ -47,6 +47,7 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
     hunyuan_shapegen = None
     hunyuan_texgen = None
     hunyuan_rembg = None
+    hunyuan_mv_shapegen = None  # Multi-view model
 
     worker_logger.info(f"Initializing models on {device}...")
 
@@ -104,10 +105,39 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                 worker_logger.info("Hunyuan3D-2 shape generator loaded!")
             return hunyuan_shapegen, hunyuan_texgen, hunyuan_rembg
 
+        # Initialize Hunyuan3D-2 MV (Multi-View) model
+        def get_hunyuan_mv():
+            nonlocal hunyuan_mv_shapegen, hunyuan_texgen, hunyuan_rembg
+            if hunyuan_mv_shapegen is None:
+                worker_logger.info("Loading Hunyuan3D-2 MV (Multi-View) model...")
+                from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
+                from hy3dgen.rembg import BackgroundRemover
+
+                hunyuan_mv_shapegen = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+                    settings.hunyuan3d_mv_model,
+                    subfolder='hunyuan3d-dit-v2-mv'
+                )
+                if hunyuan_rembg is None:
+                    hunyuan_rembg = BackgroundRemover()
+
+                # Try to load texture generator (shared with single-view)
+                if hunyuan_texgen is None:
+                    try:
+                        from hy3dgen.texgen import Hunyuan3DPaintPipeline
+                        hunyuan_texgen = Hunyuan3DPaintPipeline.from_pretrained(
+                            settings.hunyuan3d_model
+                        )
+                        worker_logger.info("Hunyuan3D-2 texture generator loaded!")
+                    except Exception as e:
+                        worker_logger.warning(f"Texture generator not available: {e}")
+
+                worker_logger.info("Hunyuan3D-2 MV model loaded!")
+            return hunyuan_mv_shapegen, hunyuan_texgen, hunyuan_rembg
+
         def unload_hunyuan():
             """Unload Hunyuan3D-2 models to free GPU memory."""
-            nonlocal hunyuan_shapegen, hunyuan_texgen, hunyuan_rembg
-            if hunyuan_shapegen is not None or hunyuan_texgen is not None:
+            nonlocal hunyuan_shapegen, hunyuan_texgen, hunyuan_rembg, hunyuan_mv_shapegen
+            if hunyuan_shapegen is not None or hunyuan_texgen is not None or hunyuan_mv_shapegen is not None:
                 worker_logger.info("[Memory] Unloading Hunyuan3D-2 models...")
 
                 # Delete model references
@@ -117,6 +147,9 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                 if hunyuan_shapegen is not None:
                     del hunyuan_shapegen
                     hunyuan_shapegen = None
+                if hunyuan_mv_shapegen is not None:
+                    del hunyuan_mv_shapegen
+                    hunyuan_mv_shapegen = None
                 if hunyuan_rembg is not None:
                     del hunyuan_rembg
                     hunyuan_rembg = None
@@ -254,6 +287,75 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
 
         return obj_file.name, glb_file.name
 
+    def process_3d_hunyuan_mv(images: dict, with_texture: bool = True, mesh_quality: str = "balanced") -> tuple:
+        """Generate 3D using Hunyuan3D-2 MV (Multi-View).
+
+        Args:
+            images: Dictionary with 'front', 'left', 'back' keys containing PIL Images
+            with_texture: Whether to generate texture
+            mesh_quality: Quality setting for mesh
+        """
+        mv_shapegen, texgen, hy_rembg = get_hunyuan_mv()
+        max_faces = MESH_QUALITY_MAP.get(mesh_quality, 200000)
+        worker_logger.info(f"[Hunyuan3D-MV] Mesh quality: {mesh_quality} (max_faces={max_faces})")
+
+        # Prepare images - ensure RGBA for all views
+        prepared_images = {}
+        for view_name, img in images.items():
+            if img is None:
+                continue
+            if img.mode != "RGBA":
+                worker_logger.info(f"[Hunyuan3D-MV] Removing background from {view_name} view...")
+                img = hy_rembg(img.convert("RGB"))
+            prepared_images[view_name] = img
+
+        if "front" not in prepared_images:
+            raise Exception("Front view image is required for multi-view generation")
+
+        worker_logger.info(f"[Hunyuan3D-MV] Using views: {list(prepared_images.keys())}")
+
+        # Generate shape with multi-view
+        worker_logger.info("[Hunyuan3D-MV] Generating 3D shape from multi-view images...")
+        t0 = time.time()
+        mesh = mv_shapegen(image=prepared_images)[0]
+        worker_logger.info(f"[Hunyuan3D-MV] Shape generation: {time.time() - t0:.2f}s")
+
+        # Generate texture if available and requested (use front image for texture)
+        if with_texture and texgen is not None:
+            try:
+                worker_logger.info("[Hunyuan3D-MV] Generating texture...")
+                t0 = time.time()
+                mesh = texgen(mesh, image=prepared_images["front"], max_faces=max_faces)
+                worker_logger.info(f"[Hunyuan3D-MV] Texture generation: {time.time() - t0:.2f}s")
+            except Exception as tex_err:
+                worker_logger.warning(f"[Hunyuan3D-MV] Texture generation failed: {tex_err}")
+        elif with_texture:
+            worker_logger.info("[Hunyuan3D-MV] Texture generator not available, exporting shape only")
+
+        # Export mesh
+        obj_file = tempfile.NamedTemporaryFile(suffix=".obj", delete=False)
+        glb_file = tempfile.NamedTemporaryFile(suffix=".glb", delete=False)
+        mesh.export(obj_file.name)
+        mesh.export(glb_file.name)
+
+        # Unload models
+        unload_hunyuan()
+
+        return obj_file.name, glb_file.name
+
+    def process_3d_hunyuan_api(input_image: Image.Image, mesh_quality: str = "balanced") -> tuple:
+        """Generate 3D using Hunyuan Cloud API."""
+        from .external_apis import get_hunyuan_client
+
+        client = get_hunyuan_client()
+        if client is None:
+            raise Exception(
+                "Hunyuan API credentials not configured. "
+                "Set T2I3D_HUNYUAN_SECRET_ID and T2I3D_HUNYUAN_SECRET_KEY environment variables."
+            )
+
+        return client.image_to_3d(input_image, quality=mesh_quality)
+
     def process_text_to_3d(task: dict) -> dict:
         """Process full text-to-3D pipeline."""
         nonlocal loaded_checkpoint
@@ -315,21 +417,32 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
 
         # Generate 3D based on selected engine
         worker_logger.info(f"Using 3D engine: {engine_3d}")
+
+        # Prepare RGBA image for Hunyuan-based engines
+        def prepare_image_for_hunyuan():
+            if do_remove_background:
+                img = remove_background(generated_image.convert("RGB"), rembg_session)
+                return resize_foreground(img, foreground_ratio)
+            else:
+                return generated_image.convert("RGBA")
+
         if engine_3d == "hunyuan3d":
             # Hunyuan needs RGBA with transparent background
-            if do_remove_background:
-                image_for_3d = remove_background(generated_image.convert("RGB"), rembg_session)
-                image_for_3d = resize_foreground(image_for_3d, foreground_ratio)
-            else:
-                image_for_3d = generated_image.convert("RGBA")
+            image_for_3d = prepare_image_for_hunyuan()
             obj_path, glb_path = process_3d_hunyuan(image_for_3d, mesh_quality=mesh_quality)
+        elif engine_3d == "hunyuan3d_mv":
+            # Multi-view mode: use single image as front view
+            # (Full multi-view only available for 3d-only endpoint with uploaded images)
+            image_for_3d = prepare_image_for_hunyuan()
+            mv_images = {"front": image_for_3d}
+            obj_path, glb_path = process_3d_hunyuan_mv(mv_images, mesh_quality=mesh_quality)
+        elif engine_3d == "hunyuan_api":
+            # Hunyuan Cloud API
+            image_for_3d = prepare_image_for_hunyuan()
+            obj_path, glb_path = process_3d_hunyuan_api(image_for_3d, mesh_quality=mesh_quality)
         elif engine_3d == "tripo_api":
             # Cloud-based Tripo API
-            if do_remove_background:
-                image_for_3d = remove_background(generated_image.convert("RGB"), rembg_session)
-                image_for_3d = resize_foreground(image_for_3d, foreground_ratio)
-            else:
-                image_for_3d = generated_image.convert("RGBA")
+            image_for_3d = prepare_image_for_hunyuan()
             obj_path, glb_path = process_3d_tripo_api(image_for_3d)
         else:  # triposr
             obj_path, glb_path = process_3d_triposr(processed_image, mc_resolution)
@@ -432,6 +545,8 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
         from tsr.utils import remove_background, resize_foreground
 
         image_b64 = task["image"]
+        image_left_b64 = task.get("image_left")  # Multi-view: left image
+        image_back_b64 = task.get("image_back")  # Multi-view: back image
         do_remove_background = task["remove_background"]
         foreground_ratio = task["foreground_ratio"]
         mc_resolution = task["mc_resolution"]
@@ -440,11 +555,21 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
 
         total_start = time.time()
 
-        # Decode image
+        # Decode main (front) image
         image_data = base64.b64decode(image_b64)
         input_image = Image.open(io.BytesIO(image_data))
 
-        # Preprocess
+        # Decode optional multi-view images
+        input_image_left = None
+        input_image_back = None
+        if image_left_b64:
+            left_data = base64.b64decode(image_left_b64)
+            input_image_left = Image.open(io.BytesIO(left_data))
+        if image_back_b64:
+            back_data = base64.b64decode(image_back_b64)
+            input_image_back = Image.open(io.BytesIO(back_data))
+
+        # Preprocess main image
         if do_remove_background:
             image = input_image.convert("RGB")
             image = remove_background(image, rembg_session)
@@ -455,13 +580,33 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
 
         # Generate 3D based on selected engine
         worker_logger.info(f"Using 3D engine: {engine_3d}")
-        if engine_3d == "hunyuan3d":
+
+        if engine_3d == "hunyuan3d_mv":
+            # Multi-view Hunyuan3D-2
+            mv_images = {"front": input_image}
+            if input_image_left:
+                mv_images["left"] = input_image_left
+            if input_image_back:
+                mv_images["back"] = input_image_back
+            obj_path, glb_path = process_3d_hunyuan_mv(mv_images, mesh_quality=mesh_quality)
+
+        elif engine_3d == "hunyuan_api":
+            # Hunyuan Cloud API
+            if do_remove_background:
+                image_for_3d = remove_background(input_image.convert("RGB"), rembg_session)
+                image_for_3d = resize_foreground(image_for_3d, foreground_ratio)
+            else:
+                image_for_3d = input_image.convert("RGBA")
+            obj_path, glb_path = process_3d_hunyuan_api(image_for_3d, mesh_quality=mesh_quality)
+
+        elif engine_3d == "hunyuan3d":
             if do_remove_background:
                 image_for_3d = remove_background(input_image.convert("RGB"), rembg_session)
                 image_for_3d = resize_foreground(image_for_3d, foreground_ratio)
             else:
                 image_for_3d = input_image.convert("RGBA")
             obj_path, glb_path = process_3d_hunyuan(image_for_3d, mesh_quality=mesh_quality)
+
         elif engine_3d == "tripo_api":
             # Use cloud-based Tripo API
             if do_remove_background:
@@ -470,6 +615,7 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             else:
                 image_for_3d = input_image.convert("RGBA")
             obj_path, glb_path = process_3d_tripo_api(image_for_3d)
+
         else:  # triposr
             obj_path, glb_path = process_3d_triposr(processed_image, mc_resolution)
 
@@ -481,6 +627,54 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             "processing_time": time.time() - total_start,
             "engine_3d": engine_3d,
         }
+
+    def process_part_segmentation(task: dict) -> dict:
+        """Process part segmentation using P3-SAM."""
+        mesh_path = task["mesh_path"]
+        post_process = task.get("post_process", True)
+        seed = task.get("seed", 42)
+
+        total_start = time.time()
+
+        # Unload other models to free GPU memory
+        unload_hunyuan()
+
+        try:
+            from .part_segmentation import segment_mesh_parts, is_p3sam_available
+
+            if not is_p3sam_available():
+                return {
+                    "success": False,
+                    "error": "P3-SAM is not available. Please ensure hunyuan3d_part submodule is cloned.",
+                }
+
+            worker_logger.info(f"[P3-SAM] Starting part segmentation for: {mesh_path}")
+
+            # Run segmentation
+            segmented_path, aabb, face_ids = segment_mesh_parts(
+                mesh_path=mesh_path,
+                post_process=post_process,
+                seed=seed,
+            )
+
+            part_count = len([i for i in np.unique(face_ids) if i >= 0])
+            worker_logger.info(f"[P3-SAM] Found {part_count} parts")
+
+            return {
+                "success": True,
+                "segmented_mesh_path": segmented_path,
+                "part_count": part_count,
+                "processing_time": time.time() - total_start,
+            }
+
+        except Exception as e:
+            worker_logger.error(f"[P3-SAM] Part segmentation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": str(e),
+            }
 
     # Main worker loop
     while True:
@@ -506,9 +700,11 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                         "success": True,
                         "gpu_available": torch.cuda.is_available(),
                         "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-                        "available_engines": ["triposr", "hunyuan3d"],
+                        "available_engines": ["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api"],
                         "default_engine": settings.default_3d_engine,
                     }
+                elif task_type == "segment_parts":
+                    result = process_part_segmentation(task)
                 else:
                     result = {"success": False, "error": f"Unknown task type: {task_type}"}
 

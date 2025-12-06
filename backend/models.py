@@ -15,7 +15,7 @@ class GenerationRequest(BaseModel):
     remove_background: bool = Field(default=True, description="Whether to remove background from generated image")
     foreground_ratio: float = Field(default=0.90, ge=0.5, le=1.0, description="Foreground ratio for preprocessing")
     mc_resolution: int = Field(default=256, ge=32, le=512, description="Marching cubes resolution for mesh extraction")
-    engine_3d: Literal["triposr", "hunyuan3d", "tripo_api"] = Field(
+    engine_3d: Literal["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api"] = Field(
         default="hunyuan3d", description="3D generation engine to use"
     )
 
@@ -35,13 +35,16 @@ class ImageOnlyRequest(BaseModel):
 class ThreeDOnlyRequest(BaseModel):
     """Request model for 3D-only generation from uploaded image."""
 
-    image: str = Field(..., description="Base64 encoded image")
+    image: str = Field(..., description="Base64 encoded image (front view)")
+    image_left: Optional[str] = Field(None, description="Base64 encoded left view image (for multi-view)")
+    image_back: Optional[str] = Field(None, description="Base64 encoded back view image (for multi-view)")
     remove_background: bool = Field(default=True, description="Whether to remove background")
     foreground_ratio: float = Field(default=0.90, ge=0.5, le=1.0, description="Foreground ratio for preprocessing")
     mc_resolution: int = Field(default=256, ge=32, le=512, description="Marching cubes resolution")
-    engine_3d: Literal["triposr", "hunyuan3d", "tripo_api"] = Field(
+    engine_3d: Literal["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api"] = Field(
         default="hunyuan3d", description="3D generation engine to use"
     )
+    mesh_quality: str = Field(default="balanced", description="Mesh quality: fast, balanced, high")
 
 
 class GenerationResponse(BaseModel):
@@ -110,3 +113,21 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: str
     detail: Optional[str] = None
+
+
+class PartSegmentationRequest(BaseModel):
+    """Request model for part segmentation (post-processing)."""
+
+    mesh_glb_url: str = Field(..., description="URL to the GLB mesh to segment")
+    post_process: bool = Field(default=True, description="Enable post-processing for cleaner segmentation")
+    seed: int = Field(default=42, description="Random seed for reproducibility")
+
+
+class PartSegmentationResponse(BaseModel):
+    """Response model for part segmentation."""
+
+    success: bool
+    segmented_mesh_url: Optional[str] = Field(None, description="URL to download segmented GLB mesh")
+    part_count: Optional[int] = Field(None, description="Number of parts detected")
+    processing_time: Optional[float] = None
+    error: Optional[str] = None

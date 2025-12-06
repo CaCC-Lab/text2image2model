@@ -2,7 +2,7 @@
  * API types for Text-to-Image-to-3D Pipeline
  */
 
-export type Engine3DType = 'triposr' | 'hunyuan3d' | 'tripo_api';
+export type Engine3DType = 'triposr' | 'hunyuan3d' | 'hunyuan3d_mv' | 'hunyuan_api' | 'tripo_api';
 export type ImageEngineType = 'sdxl' | 'dalle' | 'gemini';
 export type MeshQualityType = 'fast' | 'balanced' | 'high';
 
@@ -148,6 +148,18 @@ export const ENGINE_3D_INFO: Record<Engine3DType, Engine3DInfo> = {
     quality: 5,
     speed: 3,
   },
+  'hunyuan3d_mv': {
+    name: 'Hunyuan3D-2 MV (マルチビュー)',
+    description: '複数視点から高精度3D生成、左・後ろ画像対応',
+    quality: 5,
+    speed: 2,
+  },
+  'hunyuan_api': {
+    name: 'Hunyuan API (クラウド)',
+    description: 'Tencent Cloud API、APIキー必要',
+    quality: 5,
+    speed: 2,
+  },
   'triposr': {
     name: 'TripoSR (高速)',
     description: '高速生成、シンプルなモデル向け',
@@ -189,3 +201,18 @@ export const IMAGE_ENGINE_INFO: Record<ImageEngineType, ImageEngineInfo> = {
     speed: 3,
   },
 };
+
+// Part Segmentation (P3-SAM post-processing)
+export interface PartSegmentationRequest {
+  mesh_glb_url: string;
+  post_process?: boolean;
+  seed?: number;
+}
+
+export interface PartSegmentationResponse {
+  success: boolean;
+  segmented_mesh_url?: string;
+  part_count?: number;
+  processing_time?: number;
+  error?: string;
+}

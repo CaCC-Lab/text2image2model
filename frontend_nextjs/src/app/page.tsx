@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Header,
@@ -17,11 +17,10 @@ import { checkHealth } from '@/lib/api';
 import { useAppStore } from '@/lib/store';
 import { Wand2, Upload } from 'lucide-react';
 
-type InputMode = 'text' | 'image';
-
 export default function Home() {
   const setBackendConnected = useAppStore((state) => state.setBackendConnected);
-  const [inputMode, setInputMode] = useState<InputMode>('text');
+  const inputMode = useAppStore((state) => state.inputMode);
+  const setInputMode = useAppStore((state) => state.setInputMode);
 
   useEffect(() => {
     const checkBackend = async () => {

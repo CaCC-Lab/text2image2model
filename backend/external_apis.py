@@ -293,6 +293,116 @@ class TripoAPIClient:
         return obj_file.name, glb_file.name
 
 
+class HunyuanAPIClient:
+    """
+    Client for Tencent Cloud Hunyuan 3D API
+
+    API Reference: https://www.tencentcloud.com/products/ai3d
+    SDK: pip install tencentcloud-sdk-python-hunyuan
+
+    Requires:
+    - SecretID: Tencent Cloud API access key ID
+    - SecretKey: Tencent Cloud API secret access key
+    """
+
+    def __init__(self, secret_id: str, secret_key: str):
+        self.secret_id = secret_id
+        self.secret_key = secret_key
+        self._client = None
+
+    def _get_client(self):
+        """Lazy load Tencent Cloud client."""
+        if self._client is None:
+            try:
+                from tencentcloud.common import credential
+                from tencentcloud.hunyuan.v20230901 import hunyuan_client
+                cred = credential.Credential(self.secret_id, self.secret_key)
+                self._client = hunyuan_client.HunyuanClient(cred, "ap-guangzhou")
+            except ImportError:
+                raise ImportError(
+                    "tencentcloud-sdk-python-hunyuan not installed. "
+                    "Run: pip install tencentcloud-sdk-python-hunyuan"
+                )
+        return self._client
+
+    def image_to_3d(
+        self,
+        image: Image.Image,
+        quality: str = "balanced"
+    ) -> Tuple[str, str]:
+        """
+        Generate 3D model from image using Hunyuan Cloud API.
+
+        Args:
+            image: PIL Image (RGBA recommended)
+            quality: "fast", "balanced", or "high"
+
+        Returns:
+            Tuple of (obj_path, glb_path)
+        """
+        logger.info("[Hunyuan API] Starting cloud 3D generation...")
+
+        # Convert image to base64
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+        try:
+            from tencentcloud.hunyuan.v20230901 import models as hunyuan_models
+
+            client = self._get_client()
+
+            # Create request
+            req = hunyuan_models.Submit3DModelGenerationRequest()
+            req.ImageBase64 = image_b64
+
+            logger.info("[Hunyuan API] Submitting task...")
+            resp = client.Submit3DModelGeneration(req)
+            task_id = resp.TaskId
+
+            logger.info(f"[Hunyuan API] Task ID: {task_id}")
+
+            # Poll for completion
+            start_time = time.time()
+            while time.time() - start_time < 1800:  # 30 min timeout
+                query_req = hunyuan_models.Query3DModelGenerationRequest()
+                query_req.TaskId = task_id
+                query_resp = client.Query3DModelGeneration(query_req)
+
+                status = query_resp.Status
+                if status == "SUCCESS":
+                    logger.info("[Hunyuan API] Generation complete!")
+                    model_url = query_resp.ModelUrl
+                    break
+                elif status == "FAILED":
+                    raise Exception(f"Hunyuan API failed: {query_resp.Message}")
+
+                logger.info(f"[Hunyuan API] Status: {status}")
+                time.sleep(10)
+            else:
+                raise Exception("Hunyuan API timeout")
+
+            # Download model
+            glb_file = tempfile.NamedTemporaryFile(suffix=".glb", delete=False)
+            model_response = requests.get(model_url)
+            model_response.raise_for_status()
+            glb_file.write(model_response.content)
+            glb_file.close()
+
+            obj_file = tempfile.NamedTemporaryFile(suffix=".obj", delete=False)
+            obj_file.write(model_response.content)
+            obj_file.close()
+
+            logger.info(f"[Hunyuan API] Downloaded: {len(model_response.content)} bytes")
+            return obj_file.name, glb_file.name
+
+        except ImportError as e:
+            raise e
+        except Exception as e:
+            logger.error(f"[Hunyuan API] Error: {e}")
+            raise
+
+
 # =============================================================================
 # Factory Functions
 # =============================================================================
@@ -315,4 +425,11 @@ def get_tripo_client() -> Optional[TripoAPIClient]:
     """Get Tripo client if configured."""
     if settings.tripo_api_key:
         return TripoAPIClient(settings.tripo_api_key)
+    return None
+
+
+def get_hunyuan_client() -> Optional[HunyuanAPIClient]:
+    """Get Hunyuan API client if configured."""
+    if settings.hunyuan_secret_id and settings.hunyuan_secret_key:
+        return HunyuanAPIClient(settings.hunyuan_secret_id, settings.hunyuan_secret_key)
     return None
