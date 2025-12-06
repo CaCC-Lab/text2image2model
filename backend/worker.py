@@ -104,6 +104,34 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                 worker_logger.info("Hunyuan3D-2 shape generator loaded!")
             return hunyuan_shapegen, hunyuan_texgen, hunyuan_rembg
 
+        def unload_hunyuan():
+            """Unload Hunyuan3D-2 models to free GPU memory."""
+            nonlocal hunyuan_shapegen, hunyuan_texgen, hunyuan_rembg
+            if hunyuan_shapegen is not None or hunyuan_texgen is not None:
+                worker_logger.info("[Memory] Unloading Hunyuan3D-2 models...")
+
+                # Delete model references
+                if hunyuan_texgen is not None:
+                    del hunyuan_texgen
+                    hunyuan_texgen = None
+                if hunyuan_shapegen is not None:
+                    del hunyuan_shapegen
+                    hunyuan_shapegen = None
+                if hunyuan_rembg is not None:
+                    del hunyuan_rembg
+                    hunyuan_rembg = None
+
+                # Force garbage collection and clear CUDA cache
+                import gc
+                gc.collect()
+                torch.cuda.empty_cache()
+
+                # Log memory status
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated() / 1024**3
+                    reserved = torch.cuda.memory_reserved() / 1024**3
+                    worker_logger.info(f"[Memory] GPU: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+
         worker_logger.info("Base models initialized successfully!")
         result_q.put({"status": "READY"})
 
@@ -221,6 +249,9 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
         mesh.export(obj_file.name)
         mesh.export(glb_file.name)
 
+        # Unload Hunyuan3D models to free GPU memory for next SDXL generation
+        unload_hunyuan()
+
         return obj_file.name, glb_file.name
 
     def process_text_to_3d(task: dict) -> dict:
@@ -240,6 +271,10 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
         mesh_quality = task.get("mesh_quality", "balanced")
 
         total_start = time.time()
+
+        # Ensure Hunyuan3D models are unloaded before SDXL generation
+        unload_hunyuan()
+
         checkpoint_config = CHECKPOINTS[checkpoint_name]
 
         # Load checkpoint if needed
@@ -324,6 +359,9 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
         image_engine = task.get("image_engine", settings.default_image_engine)
 
         total_start = time.time()
+
+        # Ensure Hunyuan3D models are unloaded before SDXL generation
+        unload_hunyuan()
 
         # Generate image based on selected engine
         worker_logger.info(f"Using image engine: {image_engine}")
