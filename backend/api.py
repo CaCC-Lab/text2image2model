@@ -168,9 +168,9 @@ async def generate(request: GenerationRequest):
         "engine_3d": request.engine_3d,
     })
 
-    # Wait for result
+    # Wait for result (30 minutes for high quality generation)
     try:
-        result = worker.result_queue.get(timeout=300)  # 5 minute timeout
+        result = worker.result_queue.get(timeout=1800)
     except Exception as e:
         logger.error(f"Generation timeout: {e}")
         raise HTTPException(status_code=504, detail="Generation timeout")
@@ -252,7 +252,8 @@ async def generate_3d_only(request: ThreeDOnlyRequest):
     })
 
     try:
-        result = worker.result_queue.get(timeout=180)
+        # 30 minute timeout for Hunyuan3D high quality texture generation
+        result = worker.result_queue.get(timeout=1800)
     except Exception as e:
         logger.error(f"Generation timeout: {e}")
         raise HTTPException(status_code=504, detail="Generation timeout")

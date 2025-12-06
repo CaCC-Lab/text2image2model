@@ -9,7 +9,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 // Create axios instance with defaults
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 660000, // 11 minutes for Hunyuan3D high quality texture generation
+  timeout: 1800000, // 30 minutes for high quality generation
   headers: {
     'Content-Type': 'application/json',
   },
