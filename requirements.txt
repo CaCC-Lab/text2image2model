@@ -30,6 +30,10 @@ pydantic>=2.0.0
 pydantic-settings>=2.0.0
 python-multipart
 
+# External AI APIs
+google-genai>=1.0.0
+openai>=1.0.0
+
 # Translation (Japanese -> English for SDXL)
 deep-translator>=1.11.0
 

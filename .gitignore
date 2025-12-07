@@ -30,6 +30,7 @@ dist/
 build/
 
 # Generated/Output
+output/
 outputs/
 *.glb
 *.obj
