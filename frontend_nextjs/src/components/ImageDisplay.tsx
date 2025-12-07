@@ -98,10 +98,12 @@ export function ImageDisplay() {
             {multiviewFront ? (
               <>
                 <Image
+                  key={`front-${multiviewFront.slice(0, 16)}`}
                   src={`data:image/png;base64,${multiviewFront}`}
                   alt="正面"
                   fill
                   className="object-contain"
+                  unoptimized
                 />
                 <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
                   正面
@@ -118,10 +120,12 @@ export function ImageDisplay() {
             {multiviewRight ? (
               <>
                 <Image
+                  key={`right-${multiviewRight.slice(0, 16)}`}
                   src={`data:image/png;base64,${multiviewRight}`}
                   alt="右側面"
                   fill
                   className="object-contain"
+                  unoptimized
                 />
                 <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
                   右側面
@@ -138,10 +142,12 @@ export function ImageDisplay() {
             {multiviewLeft ? (
               <>
                 <Image
+                  key={`left-${multiviewLeft.slice(0, 16)}`}
                   src={`data:image/png;base64,${multiviewLeft}`}
                   alt="左側面"
                   fill
                   className="object-contain"
+                  unoptimized
                 />
                 <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
                   左側面
@@ -158,10 +164,12 @@ export function ImageDisplay() {
             {multiviewBack ? (
               <>
                 <Image
+                  key={`back-${multiviewBack.slice(0, 16)}`}
                   src={`data:image/png;base64,${multiviewBack}`}
                   alt="背面"
                   fill
                   className="object-contain"
+                  unoptimized
                 />
                 <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
                   背面
