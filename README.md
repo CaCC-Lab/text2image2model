@@ -209,8 +209,8 @@ curl -X POST http://localhost:8080/api/generate \
     "prompt": "かわいいロボットキャラクター、白と青",
     "checkpoint": "4-Step",
     "remove_background": true,
-    "foreground_ratio": 0.85,
-    "mc_resolution": 128,
+    "foreground_ratio": 0.90,
+    "mc_resolution": 256,
     "engine_3d": "hunyuan3d"
   }'
 
