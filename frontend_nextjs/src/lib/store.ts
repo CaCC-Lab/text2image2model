@@ -81,8 +81,8 @@ export const useAppStore = create<AppState>((set) => ({
   prompt: '',
   checkpoint: '4-Step',
   removeBackground: true,
-  foregroundRatio: 0.85,
-  mcResolution: 128,
+  foregroundRatio: 0.90,  // Match config.py default_foreground_ratio
+  mcResolution: 256,      // Match config.py default_mc_resolution
   engine3d: 'hunyuan3d',
   imageEngine: 'sdxl',
   meshQuality: 'balanced',
@@ -171,8 +171,8 @@ export const useAppStore = create<AppState>((set) => ({
       prompt: '',
       checkpoint: '4-Step',
       removeBackground: true,
-      foregroundRatio: 0.85,
-      mcResolution: 128,
+      foregroundRatio: 0.90,
+      mcResolution: 256,
       engine3d: 'hunyuan3d',
       imageEngine: 'sdxl',
       meshQuality: 'balanced',

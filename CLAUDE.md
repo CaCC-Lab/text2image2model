@@ -54,23 +54,27 @@ python app.py --port 7860 --share
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check with worker status |
+| `/api/config` | GET | Get available configuration options |
 | `/api/generate/image-only` | POST | Text → Image generation |
-| `/api/generate/3d-only` | POST | Image → 3D model generation |
+| `/api/generate/3d-only` | POST | Image → 3D model generation (multi-view support) |
 | `/api/generate` | POST | Full pipeline (text → 3D) |
+| `/api/segment-parts` | POST | P3-SAM part segmentation (post-processing) |
 | `/api/models/{filename}` | GET | Download mesh files |
 
 ## Environment Variables
 
 ```bash
-T2I3D_OPENAI_API_KEY=sk-xxx    # DALL-E 3
-T2I3D_GEMINI_API_KEY=xxx       # Gemini
-T2I3D_TRIPO_API_KEY=xxx        # Tripo API
+T2I3D_OPENAI_API_KEY=sk-xxx        # DALL-E 3
+T2I3D_GEMINI_API_KEY=xxx           # Gemini
+T2I3D_HUNYUAN_SECRET_ID=xxx        # Hunyuan API (Tencent Cloud)
+T2I3D_HUNYUAN_SECRET_KEY=xxx       # Hunyuan API (Tencent Cloud)
+T2I3D_TRIPO_API_KEY=xxx            # Tripo API
 ```
 
 ## Key Types
 
 ```typescript
-Engine3DType = 'hunyuan3d' | 'triposr' | 'tripo_api'
+Engine3DType = 'triposr' | 'hunyuan3d' | 'hunyuan3d_mv' | 'hunyuan_api' | 'tripo_api' | 'gemini_mv' | 'auto_mv'
 ImageEngineType = 'sdxl' | 'dalle' | 'gemini'
 MeshQualityType = 'fast' | 'balanced' | 'high'  // Hunyuan3D only
 CheckpointType = '1-Step' | '2-Step' | '4-Step' | '8-Step'  // SDXL steps

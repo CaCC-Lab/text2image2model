@@ -101,7 +101,7 @@ def wait_for_backend(host: str, port: int, timeout: int = 120) -> bool:
     return False
 
 
-def run_backend(port: int = 8000, host: str = "127.0.0.1") -> subprocess.Popen:
+def run_backend(port: int = 8080, host: str = "127.0.0.1") -> subprocess.Popen:
     """Start the backend server."""
     script = Path(__file__).parent / "run_backend.py"
     cmd = [sys.executable, str(script), "--port", str(port), "--host", host]

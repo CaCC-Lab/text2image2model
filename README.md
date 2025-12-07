@@ -66,12 +66,12 @@ git submodule update --init hunyuan3d_part
 ### 2. Environment Variables (for Cloud APIs)
 
 ```bash
-# .env file
-OPENAI_API_KEY=sk-xxx           # For DALL-E 3
-GOOGLE_AI_API_KEY=xxx           # For Gemini
-TENCENT_SECRET_ID=xxx           # For Hunyuan API
-TENCENT_SECRET_KEY=xxx          # For Hunyuan API
-TRIPO_API_KEY=xxx               # For Tripo API
+# .env file (T2I3D_ prefix required - see backend/config.py)
+T2I3D_OPENAI_API_KEY=sk-xxx           # For DALL-E 3
+T2I3D_GEMINI_API_KEY=xxx              # For Gemini
+T2I3D_HUNYUAN_SECRET_ID=xxx           # For Hunyuan API
+T2I3D_HUNYUAN_SECRET_KEY=xxx          # For Hunyuan API
+T2I3D_TRIPO_API_KEY=xxx               # For Tripo API
 ```
 
 ### 3. Run Application

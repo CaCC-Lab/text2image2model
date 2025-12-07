@@ -4,7 +4,7 @@
 import axios, { AxiosError } from 'axios';
 import type { GenerationRequest, GenerationResponse, HealthResponse, ErrorResponse } from '@/types/api';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 // Create axios instance with defaults
 const api = axios.create({
@@ -21,7 +21,7 @@ const api = axios.create({
 export async function checkHealth(): Promise<boolean> {
   try {
     const response = await api.get<HealthResponse>('/health', { timeout: 5000 });
-    return response.status === 200 && response.data.status === 'healthy';
+    return response.status === 200 && response.data.status === 'healthy' && response.data.worker_status === 'running';
   } catch {
     return false;
   }

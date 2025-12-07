@@ -80,14 +80,25 @@ export interface GenerationResponse {
 }
 
 export interface HealthResponse {
-  status: string;
-  worker_running: boolean;
+  status: 'healthy' | 'unhealthy';
+  worker_status: 'running' | 'stopped' | 'unknown';
+  gpu_available: boolean;
+  gpu_name?: string;
+  version?: string;
 }
 
 export interface ConfigResponse {
   checkpoints: string[];
   default_checkpoint: string;
-  max_resolution: number;
+  default_remove_background: boolean;
+  default_foreground_ratio: number;
+  default_mc_resolution: number;
+  mc_resolution_range: { min: number; max: number; step: number };
+  foreground_ratio_range: { min: number; max: number; step: number };
+  available_3d_engines: string[];
+  default_3d_engine: string;
+  available_image_engines: string[];
+  default_image_engine: string;
 }
 
 export interface ErrorResponse {

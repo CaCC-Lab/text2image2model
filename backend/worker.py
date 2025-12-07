@@ -39,7 +39,24 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
     logging.basicConfig(level=logging.INFO, format="[Worker] %(message)s")
     worker_logger = logging.getLogger("worker")
 
-    device = settings.device if settings.use_gpu and torch.cuda.is_available() else "cpu"
+    # Dual GPU support: SDXL on one GPU, Hunyuan3D on another
+    if settings.use_gpu and torch.cuda.is_available():
+        gpu_count = torch.cuda.device_count()
+        if gpu_count >= 2:
+            sdxl_device = settings.sdxl_device
+            hunyuan_device = settings.hunyuan_device
+            worker_logger.info(f"Dual GPU mode: SDXL on {sdxl_device}, Hunyuan3D on {hunyuan_device}")
+        else:
+            # Single GPU fallback
+            sdxl_device = settings.device
+            hunyuan_device = settings.device
+            worker_logger.info(f"Single GPU mode: All models on {sdxl_device}")
+    else:
+        sdxl_device = "cpu"
+        hunyuan_device = "cpu"
+        worker_logger.info("CPU mode")
+
+    device = sdxl_device  # Legacy compatibility
     loaded_checkpoint = None
 
     # Model instances
@@ -49,15 +66,15 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
     hunyuan_rembg = None
     hunyuan_mv_shapegen = None  # Multi-view model
 
-    worker_logger.info(f"Initializing models on {device}...")
+    worker_logger.info(f"Initializing SDXL on {sdxl_device}...")
 
     try:
-        # Initialize SDXL-Lightning
+        # Initialize SDXL-Lightning on sdxl_device (RTX 3060)
         pipe = StableDiffusionXLPipeline.from_pretrained(
             settings.base_model,
-            torch_dtype=torch.float16 if "cuda" in device else torch.float32,
-            variant="fp16" if "cuda" in device else None,
-        ).to(device)
+            torch_dtype=torch.float16 if "cuda" in sdxl_device else torch.float32,
+            variant="fp16" if "cuda" in sdxl_device else None,
+        ).to(sdxl_device)
 
         # Initialize rembg
         rembg_session = rembg.new_session()
@@ -78,13 +95,17 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                 worker_logger.info("TripoSR loaded!")
             return triposr_model
 
-        # Initialize Hunyuan3D-2 (lazy load on first use)
+        # Initialize Hunyuan3D-2 (lazy load on first use) on hunyuan_device (RTX 4090)
         def get_hunyuan():
             nonlocal hunyuan_shapegen, hunyuan_texgen, hunyuan_rembg
             if hunyuan_shapegen is None:
-                worker_logger.info("Loading Hunyuan3D-2 models...")
+                worker_logger.info(f"Loading Hunyuan3D-2 models on {hunyuan_device}...")
                 from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
                 from hy3dgen.rembg import BackgroundRemover
+
+                # Set default CUDA device for Hunyuan3D
+                if "cuda" in hunyuan_device:
+                    torch.cuda.set_device(int(hunyuan_device.split(":")[1]))
 
                 hunyuan_shapegen = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
                     settings.hunyuan3d_model
@@ -105,13 +126,17 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                 worker_logger.info("Hunyuan3D-2 shape generator loaded!")
             return hunyuan_shapegen, hunyuan_texgen, hunyuan_rembg
 
-        # Initialize Hunyuan3D-2 MV (Multi-View) model
+        # Initialize Hunyuan3D-2 MV (Multi-View) model on hunyuan_device (RTX 4090)
         def get_hunyuan_mv():
             nonlocal hunyuan_mv_shapegen, hunyuan_texgen, hunyuan_rembg
             if hunyuan_mv_shapegen is None:
-                worker_logger.info("Loading Hunyuan3D-2 MV (Multi-View) model...")
+                worker_logger.info(f"Loading Hunyuan3D-2 MV (Multi-View) model on {hunyuan_device}...")
                 from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
                 from hy3dgen.rembg import BackgroundRemover
+
+                # Set default CUDA device for Hunyuan3D MV
+                if "cuda" in hunyuan_device:
+                    torch.cuda.set_device(int(hunyuan_device.split(":")[1]))
 
                 hunyuan_mv_shapegen = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
                     settings.hunyuan3d_mv_model,
@@ -164,6 +189,27 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                     allocated = torch.cuda.memory_allocated() / 1024**3
                     reserved = torch.cuda.memory_reserved() / 1024**3
                     worker_logger.info(f"[Memory] GPU: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+
+        def unload_sdxl():
+            """Move SDXL pipeline to CPU to free GPU memory for Hunyuan3D texture generation."""
+            nonlocal pipe
+            if pipe is not None and hasattr(pipe, 'device') and str(pipe.device) != 'cpu':
+                worker_logger.info("[Memory] Moving SDXL to CPU to free VRAM...")
+                pipe.to("cpu")
+                import gc
+                gc.collect()
+                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated() / 1024**3
+                    reserved = torch.cuda.memory_reserved() / 1024**3
+                    worker_logger.info(f"[Memory] GPU after SDXL offload: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+
+        def reload_sdxl():
+            """Move SDXL pipeline back to GPU."""
+            nonlocal pipe
+            if pipe is not None and str(pipe.device) == 'cpu':
+                worker_logger.info("[Memory] Reloading SDXL to GPU...")
+                pipe.to(device)
 
         worker_logger.info("Base models initialized successfully!")
         result_q.put({"status": "READY"})
@@ -267,6 +313,9 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
         # Generate texture if available and requested
         if with_texture and texgen is not None:
             try:
+                # Free VRAM by moving SDXL to CPU before texture generation
+                unload_sdxl()
+
                 worker_logger.info("[Hunyuan3D] Generating texture...")
                 t0 = time.time()
                 mesh = texgen(mesh, image=input_image, max_faces=max_faces)
@@ -323,6 +372,9 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
         # Generate texture if available and requested (use front image for texture)
         if with_texture and texgen is not None:
             try:
+                # Free VRAM by moving SDXL to CPU before texture generation
+                unload_sdxl()
+
                 worker_logger.info("[Hunyuan3D-MV] Generating texture...")
                 t0 = time.time()
                 mesh = texgen(mesh, image=prepared_images["front"], max_faces=max_faces)
@@ -445,8 +497,10 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                 prediction_type=checkpoint_config["prediction_type"],
             )
             ckpt_path = hf_hub_download(settings.lightning_repo, checkpoint_config["filename"])
-            state_dict = load_file(ckpt_path, device=device)
+            # Load to CPU first to avoid OOM (UNet weights + state_dict would double memory)
+            state_dict = load_file(ckpt_path, device="cpu")
             pipe.unet.load_state_dict(state_dict)
+            del state_dict  # Free CPU memory immediately
             loaded_checkpoint = checkpoint_name
             worker_logger.info(f"Checkpoint loaded in {time.time() - t0:.2f}s")
 
@@ -579,8 +633,10 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                     prediction_type=checkpoint_config["prediction_type"],
                 )
                 ckpt_path = hf_hub_download(settings.lightning_repo, checkpoint_config["filename"])
-                state_dict = load_file(ckpt_path, device=device)
+                # Load to CPU first to avoid OOM (UNet weights + state_dict would double memory)
+                state_dict = load_file(ckpt_path, device="cpu")
                 pipe.unet.load_state_dict(state_dict)
+                del state_dict  # Free CPU memory immediately
                 loaded_checkpoint = checkpoint_name
 
             # Generate image

@@ -15,8 +15,12 @@ class Settings(BaseSettings):
     reload: bool = False
 
     # Device settings
-    device: str = "cuda:0"
+    device: str = "cuda:0"  # Legacy: fallback device
     use_gpu: bool = True
+
+    # Dual GPU support: RTX 4090 (Hunyuan3D) + RTX 3060 (SDXL)
+    sdxl_device: str = "cuda:1"      # GPU for SDXL-Lightning (RTX 3060)
+    hunyuan_device: str = "cuda:0"   # GPU for Hunyuan3D-2 (RTX 4090)
 
     # Model settings
     base_model: str = "stabilityai/stable-diffusion-xl-base-1.0"
