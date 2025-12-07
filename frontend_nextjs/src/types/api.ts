@@ -2,7 +2,7 @@
  * API types for Text-to-Image-to-3D Pipeline
  */
 
-export type Engine3DType = 'triposr' | 'hunyuan3d' | 'hunyuan3d_mv' | 'hunyuan_api' | 'tripo_api';
+export type Engine3DType = 'triposr' | 'hunyuan3d' | 'hunyuan3d_mv' | 'hunyuan_api' | 'tripo_api' | 'gemini_mv' | 'auto_mv';
 export type ImageEngineType = 'sdxl' | 'dalle' | 'gemini';
 export type MeshQualityType = 'fast' | 'balanced' | 'high';
 
@@ -72,6 +72,11 @@ export interface GenerationResponse {
   mesh_glb_url: string;
   processing_time: number;
   engine_3d?: string;
+  // Multi-view images (for gemini_mv/auto_mv engines)
+  multiview_front?: string;
+  multiview_left?: string;
+  multiview_right?: string;
+  multiview_back?: string;
 }
 
 export interface HealthResponse {
@@ -153,6 +158,18 @@ export const ENGINE_3D_INFO: Record<Engine3DType, Engine3DInfo> = {
     description: '複数視点から高精度3D生成、左・後ろ画像対応',
     quality: 5,
     speed: 2,
+  },
+  'gemini_mv': {
+    name: 'Gemini Auto MV',
+    description: '画像からGeminiでマルチビュー自動生成→高精度3D',
+    quality: 5,
+    speed: 2,
+  },
+  'auto_mv': {
+    name: 'フルオート MV (最高品質)',
+    description: 'テキスト→画像→Gemini MV→高精度3D、全自動パイプライン',
+    quality: 5,
+    speed: 1,
   },
   'hunyuan_api': {
     name: 'Hunyuan API (クラウド)',

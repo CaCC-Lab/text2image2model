@@ -356,6 +356,62 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
 
         return client.image_to_3d(input_image, quality=mesh_quality)
 
+    def generate_multiview_with_gemini(input_image: Image.Image) -> dict:
+        """Generate multi-view images using Gemini API (Nano Banana Pro).
+
+        Args:
+            input_image: Input PIL Image (front view)
+
+        Returns:
+            Dictionary with 'front', 'left', 'back' keys containing PIL Images
+        """
+        from .external_apis import get_gemini_client
+
+        client = get_gemini_client()
+        if client is None:
+            raise Exception(
+                "Gemini API key not configured. "
+                "Set T2I3D_GEMINI_API_KEY environment variable."
+            )
+
+        worker_logger.info("[Gemini] Generating multi-view images...")
+        t0 = time.time()
+        views = client.generate_multiview(input_image, views=["front", "left", "right", "back"])
+        worker_logger.info(f"[Gemini] Multi-view generation: {time.time() - t0:.2f}s")
+
+        # Check if we got all views
+        generated_views = list(views.keys())
+        worker_logger.info(f"[Gemini] Generated views: {generated_views}")
+
+        return views
+
+    def process_3d_gemini_mv(input_image: Image.Image, mesh_quality: str = "balanced") -> tuple:
+        """Generate 3D using Gemini multi-view + Hunyuan3D-2 MV pipeline.
+
+        Workflow:
+        1. Single image → Gemini (multi-view generation)
+        2. Multi-view images → Hunyuan3D-2 MV (3D generation)
+
+        Args:
+            input_image: Input PIL Image
+            mesh_quality: Quality setting for mesh
+
+        Returns:
+            Tuple of (obj_path, glb_path, mv_images)
+            mv_images is a dict with 'front', 'left', 'back' keys
+        """
+        worker_logger.info("[Gemini-MV] Starting Gemini multi-view → Hunyuan3D-2 MV pipeline...")
+        total_start = time.time()
+
+        # Step 1: Generate multi-view images with Gemini
+        mv_images = generate_multiview_with_gemini(input_image)
+
+        # Step 2: Generate 3D with Hunyuan3D-2 MV
+        obj_path, glb_path = process_3d_hunyuan_mv(mv_images, mesh_quality=mesh_quality)
+
+        worker_logger.info(f"[Gemini-MV] Total pipeline: {time.time() - total_start:.2f}s")
+        return obj_path, glb_path, mv_images
+
     def process_text_to_3d(task: dict) -> dict:
         """Process full text-to-3D pipeline."""
         nonlocal loaded_checkpoint
@@ -444,13 +500,18 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             # Cloud-based Tripo API
             image_for_3d = prepare_image_for_hunyuan()
             obj_path, glb_path = process_3d_tripo_api(image_for_3d)
+        elif engine_3d == "auto_mv":
+            # Auto Multi-View: Generated image → Gemini MV → Hunyuan3D-2 MV
+            image_for_3d = prepare_image_for_hunyuan()
+            obj_path, glb_path, mv_images = process_3d_gemini_mv(image_for_3d, mesh_quality=mesh_quality)
         else:  # triposr
             obj_path, glb_path = process_3d_triposr(processed_image, mc_resolution)
+            mv_images = None
 
         total_time = time.time() - total_start
         worker_logger.info(f"=== TOTAL: {total_time:.2f}s ===")
 
-        return {
+        result = {
             "success": True,
             "generated_image": image_to_base64(generated_image),
             "processed_image": image_to_base64(processed_image),
@@ -459,6 +520,15 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             "processing_time": total_time,
             "engine_3d": engine_3d,
         }
+
+        # Add multiview images if available
+        if mv_images:
+            result["multiview_front"] = image_to_base64(mv_images.get("front")) if mv_images.get("front") else None
+            result["multiview_left"] = image_to_base64(mv_images.get("left")) if mv_images.get("left") else None
+            result["multiview_right"] = image_to_base64(mv_images.get("right")) if mv_images.get("right") else None
+            result["multiview_back"] = image_to_base64(mv_images.get("back")) if mv_images.get("back") else None
+
+        return result
 
     def process_image_only(task: dict) -> dict:
         """Process image-only generation."""
@@ -546,6 +616,7 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
 
         image_b64 = task["image"]
         image_left_b64 = task.get("image_left")  # Multi-view: left image
+        image_right_b64 = task.get("image_right")  # Multi-view: right image
         image_back_b64 = task.get("image_back")  # Multi-view: back image
         do_remove_background = task["remove_background"]
         foreground_ratio = task["foreground_ratio"]
@@ -561,10 +632,14 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
 
         # Decode optional multi-view images
         input_image_left = None
+        input_image_right = None
         input_image_back = None
         if image_left_b64:
             left_data = base64.b64decode(image_left_b64)
             input_image_left = Image.open(io.BytesIO(left_data))
+        if image_right_b64:
+            right_data = base64.b64decode(image_right_b64)
+            input_image_right = Image.open(io.BytesIO(right_data))
         if image_back_b64:
             back_data = base64.b64decode(image_back_b64)
             input_image_back = Image.open(io.BytesIO(back_data))
@@ -586,6 +661,8 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             mv_images = {"front": input_image}
             if input_image_left:
                 mv_images["left"] = input_image_left
+            if input_image_right:
+                mv_images["right"] = input_image_right
             if input_image_back:
                 mv_images["back"] = input_image_back
             obj_path, glb_path = process_3d_hunyuan_mv(mv_images, mesh_quality=mesh_quality)
@@ -598,6 +675,7 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             else:
                 image_for_3d = input_image.convert("RGBA")
             obj_path, glb_path = process_3d_hunyuan_api(image_for_3d, mesh_quality=mesh_quality)
+            mv_images = None
 
         elif engine_3d == "hunyuan3d":
             if do_remove_background:
@@ -606,6 +684,7 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             else:
                 image_for_3d = input_image.convert("RGBA")
             obj_path, glb_path = process_3d_hunyuan(image_for_3d, mesh_quality=mesh_quality)
+            mv_images = None
 
         elif engine_3d == "tripo_api":
             # Use cloud-based Tripo API
@@ -615,11 +694,23 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             else:
                 image_for_3d = input_image.convert("RGBA")
             obj_path, glb_path = process_3d_tripo_api(image_for_3d)
+            mv_images = None
+
+        elif engine_3d == "gemini_mv" or engine_3d == "auto_mv":
+            # Gemini multi-view → Hunyuan3D-2 MV pipeline
+            # auto_mv in 3d-only context is the same as gemini_mv (image already exists)
+            if do_remove_background:
+                image_for_3d = remove_background(input_image.convert("RGB"), rembg_session)
+                image_for_3d = resize_foreground(image_for_3d, foreground_ratio)
+            else:
+                image_for_3d = input_image.convert("RGBA")
+            obj_path, glb_path, mv_images = process_3d_gemini_mv(image_for_3d, mesh_quality=mesh_quality)
 
         else:  # triposr
             obj_path, glb_path = process_3d_triposr(processed_image, mc_resolution)
+            mv_images = None
 
-        return {
+        result = {
             "success": True,
             "processed_image": image_to_base64(processed_image),
             "mesh_obj_path": obj_path,
@@ -627,6 +718,15 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             "processing_time": time.time() - total_start,
             "engine_3d": engine_3d,
         }
+
+        # Add multiview images if available
+        if mv_images:
+            result["multiview_front"] = image_to_base64(mv_images.get("front")) if mv_images.get("front") else None
+            result["multiview_left"] = image_to_base64(mv_images.get("left")) if mv_images.get("left") else None
+            result["multiview_right"] = image_to_base64(mv_images.get("right")) if mv_images.get("right") else None
+            result["multiview_back"] = image_to_base64(mv_images.get("back")) if mv_images.get("back") else None
+
+        return result
 
     def process_part_segmentation(task: dict) -> dict:
         """Process part segmentation using P3-SAM."""
@@ -700,7 +800,7 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                         "success": True,
                         "gpu_available": torch.cuda.is_available(),
                         "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-                        "available_engines": ["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api"],
+                        "available_engines": ["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api", "gemini_mv", "auto_mv"],
                         "default_engine": settings.default_3d_engine,
                     }
                 elif task_type == "segment_parts":

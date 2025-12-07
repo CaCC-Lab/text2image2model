@@ -15,7 +15,7 @@ class GenerationRequest(BaseModel):
     remove_background: bool = Field(default=True, description="Whether to remove background from generated image")
     foreground_ratio: float = Field(default=0.90, ge=0.5, le=1.0, description="Foreground ratio for preprocessing")
     mc_resolution: int = Field(default=256, ge=32, le=512, description="Marching cubes resolution for mesh extraction")
-    engine_3d: Literal["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api"] = Field(
+    engine_3d: Literal["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api", "gemini_mv", "auto_mv"] = Field(
         default="hunyuan3d", description="3D generation engine to use"
     )
 
@@ -37,11 +37,12 @@ class ThreeDOnlyRequest(BaseModel):
 
     image: str = Field(..., description="Base64 encoded image (front view)")
     image_left: Optional[str] = Field(None, description="Base64 encoded left view image (for multi-view)")
+    image_right: Optional[str] = Field(None, description="Base64 encoded right view image (for multi-view)")
     image_back: Optional[str] = Field(None, description="Base64 encoded back view image (for multi-view)")
     remove_background: bool = Field(default=True, description="Whether to remove background")
     foreground_ratio: float = Field(default=0.90, ge=0.5, le=1.0, description="Foreground ratio for preprocessing")
     mc_resolution: int = Field(default=256, ge=32, le=512, description="Marching cubes resolution")
-    engine_3d: Literal["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api"] = Field(
+    engine_3d: Literal["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api", "gemini_mv", "auto_mv"] = Field(
         default="hunyuan3d", description="3D generation engine to use"
     )
     mesh_quality: str = Field(default="balanced", description="Mesh quality: fast, balanced, high")
@@ -57,6 +58,11 @@ class GenerationResponse(BaseModel):
     mesh_glb_url: Optional[str] = Field(None, description="URL to download GLB mesh")
     processing_time: Optional[float] = Field(None, description="Total processing time in seconds")
     engine_3d: Optional[str] = Field(None, description="3D engine used for generation")
+    # Multi-view images (for gemini_mv/auto_mv engines)
+    multiview_front: Optional[str] = Field(None, description="Base64 encoded front view")
+    multiview_left: Optional[str] = Field(None, description="Base64 encoded left view")
+    multiview_right: Optional[str] = Field(None, description="Base64 encoded right view")
+    multiview_back: Optional[str] = Field(None, description="Base64 encoded back view")
     error: Optional[str] = Field(None, description="Error message if generation failed")
 
 
@@ -78,6 +84,11 @@ class ThreeDOnlyResponse(BaseModel):
     mesh_glb_url: Optional[str] = None
     processing_time: Optional[float] = None
     engine_3d: Optional[str] = None
+    # Multi-view images (for gemini_mv/auto_mv engines)
+    multiview_front: Optional[str] = Field(None, description="Base64 encoded front view")
+    multiview_left: Optional[str] = Field(None, description="Base64 encoded left view")
+    multiview_right: Optional[str] = Field(None, description="Base64 encoded right view")
+    multiview_back: Optional[str] = Field(None, description="Base64 encoded back view")
     error: Optional[str] = None
 
 

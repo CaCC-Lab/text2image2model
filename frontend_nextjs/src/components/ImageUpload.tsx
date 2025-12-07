@@ -7,16 +7,18 @@ import { useAppStore } from '@/lib/store';
 import { generate3DOnly, getMeshUrl } from '@/lib/api';
 import toast from 'react-hot-toast';
 
-type ViewType = 'front' | 'left' | 'back';
+type ViewType = 'front' | 'left' | 'right' | 'back';
 
 export function ImageUpload() {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [leftImage, setLeftImage] = useState<string | null>(null);
+  const [rightImage, setRightImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null!);
   const leftInputRef = useRef<HTMLInputElement>(null!);
+  const rightInputRef = useRef<HTMLInputElement>(null!);
   const backInputRef = useRef<HTMLInputElement>(null!);
 
   const removeBackground = useAppStore((state) => state.removeBackground);
@@ -26,8 +28,10 @@ export function ImageUpload() {
   const meshQuality = useAppStore((state) => state.meshQuality);
   const backendConnected = useAppStore((state) => state.backendConnected);
   const setGenerationResult = useAppStore((state) => state.setGenerationResult);
+  const setMultiviewImages = useAppStore((state) => state.setMultiviewImages);
 
   const isMultiView = engine3d === 'hunyuan3d_mv';
+  const isGeminiMV = engine3d === 'gemini_mv' || engine3d === 'auto_mv';
 
   const handleFileForView = useCallback((file: File, view: ViewType) => {
     if (!file.type.startsWith('image/')) {
@@ -43,6 +47,8 @@ export function ImageUpload() {
         setUploadedImage(base64);
       } else if (view === 'left') {
         setLeftImage(base64);
+      } else if (view === 'right') {
+        setRightImage(base64);
       } else if (view === 'back') {
         setBackImage(base64);
       }
@@ -88,6 +94,9 @@ export function ImageUpload() {
     } else if (view === 'left') {
       setLeftImage(null);
       if (leftInputRef.current) leftInputRef.current.value = '';
+    } else if (view === 'right') {
+      setRightImage(null);
+      if (rightInputRef.current) rightInputRef.current.value = '';
     } else if (view === 'back') {
       setBackImage(null);
       if (backInputRef.current) backInputRef.current.value = '';
@@ -97,9 +106,11 @@ export function ImageUpload() {
   const clearAllImages = () => {
     setUploadedImage(null);
     setLeftImage(null);
+    setRightImage(null);
     setBackImage(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (leftInputRef.current) leftInputRef.current.value = '';
+    if (rightInputRef.current) rightInputRef.current.value = '';
     if (backInputRef.current) backInputRef.current.value = '';
   };
 
@@ -123,6 +134,7 @@ export function ImageUpload() {
       const result = await generate3DOnly({
         image: uploadedImage,
         image_left: leftImage || undefined,
+        image_right: rightImage || undefined,
         image_back: backImage || undefined,
         remove_background: removeBackground,
         foreground_ratio: foregroundRatio,
@@ -145,6 +157,16 @@ export function ImageUpload() {
         timestamp: Date.now(),
         engine3d: result.engine_3d,
       });
+
+      // Set multiview images if available (from gemini_mv/auto_mv)
+      if (result.multiview_front || result.multiview_left || result.multiview_right || result.multiview_back) {
+        setMultiviewImages(
+          result.multiview_front || null,
+          result.multiview_left || null,
+          result.multiview_right || null,
+          result.multiview_back || null
+        );
+      }
 
       toast.success(`3Dモデル生成完了！ (${result.processing_time.toFixed(1)}秒)`);
     } catch (error) {
@@ -229,10 +251,11 @@ export function ImageUpload() {
       />
 
       {isMultiView ? (
-        /* Multi-view mode: show 3 upload slots */
+        /* Multi-view mode: show 4 upload slots (2x2 grid) */
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <MultiViewSlot view="front" image={uploadedImage} inputRef={fileInputRef} label="正面" />
+            <MultiViewSlot view="right" image={rightImage} inputRef={rightInputRef} label="右側" />
             <MultiViewSlot view="left" image={leftImage} inputRef={leftInputRef} label="左側" />
             <MultiViewSlot view="back" image={backImage} inputRef={backInputRef} label="背面" />
           </div>

@@ -22,6 +22,7 @@ export function GenerateButton() {
   const setError = useAppStore((state) => state.setError);
   const setGeneratedImage = useAppStore((state) => state.setGeneratedImage);
   const setGenerationResult = useAppStore((state) => state.setGenerationResult);
+  const setMultiviewImages = useAppStore((state) => state.setMultiviewImages);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -92,6 +93,16 @@ export function GenerateButton() {
         timestamp: Date.now(),
         engine3d: threeDResult.engine_3d,
       });
+
+      // Set multiview images if available (from auto_mv engine)
+      if (threeDResult.multiview_front || threeDResult.multiview_left || threeDResult.multiview_right || threeDResult.multiview_back) {
+        setMultiviewImages(
+          threeDResult.multiview_front || null,
+          threeDResult.multiview_left || null,
+          threeDResult.multiview_right || null,
+          threeDResult.multiview_back || null
+        );
+      }
 
       toast.success(`全処理完了！ (${totalTime.toFixed(1)}秒)`);
     } catch (error) {

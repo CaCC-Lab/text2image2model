@@ -25,11 +25,15 @@ export function SettingsPanel() {
   const inputMode = useAppStore((state) => state.inputMode);
 
   const checkpoints = Object.keys(CHECKPOINT_INFO) as CheckpointType[];
-  // Filter out MV engine when in text mode (MV requires image upload)
+  // Filter engines based on input mode:
+  // - Text mode: hide hunyuan3d_mv and gemini_mv (require image upload)
+  // - Image mode: hide auto_mv (for text-to-image pipeline)
+  // - Always hide: hunyuan_api (disabled for now, implementation kept)
   const allEngines = Object.keys(ENGINE_3D_INFO) as Engine3DType[];
+  const hiddenEngines = ['hunyuan_api']; // Disabled engines (implementation kept in code)
   const engines = inputMode === 'text'
-    ? allEngines.filter(e => e !== 'hunyuan3d_mv')
-    : allEngines;
+    ? allEngines.filter(e => e !== 'hunyuan3d_mv' && e !== 'gemini_mv' && !hiddenEngines.includes(e))
+    : allEngines.filter(e => e !== 'auto_mv' && !hiddenEngines.includes(e));
   const imageEngines = Object.keys(IMAGE_ENGINE_INFO) as ImageEngineType[];
   const meshQualities = Object.keys(MESH_QUALITY_INFO) as MeshQualityType[];
 

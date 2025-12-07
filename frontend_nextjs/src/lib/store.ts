@@ -44,6 +44,11 @@ interface AppState {
   segmentedMeshUrl: string | null;  // P3-SAM segmented mesh
   partCount: number | null;  // Number of detected parts
   processingTime: number | null;
+  // Multi-view images (for gemini_mv/auto_mv engines)
+  multiviewFront: string | null;
+  multiviewLeft: string | null;
+  multiviewRight: string | null;
+  multiviewBack: string | null;
 
   // History
   history: GenerationResult[];
@@ -66,6 +71,7 @@ interface AppState {
   setGenerationResult: (result: GenerationResult) => void;
   setIsSegmenting: (value: boolean) => void;
   setSegmentedMesh: (url: string | null, partCount: number | null) => void;
+  setMultiviewImages: (front: string | null, left: string | null, right: string | null, back: string | null) => void;
   clearResult: () => void;
   reset: () => void;
 }
@@ -93,6 +99,10 @@ export const useAppStore = create<AppState>((set) => ({
   segmentedMeshUrl: null,
   partCount: null,
   processingTime: null,
+  multiviewFront: null,
+  multiviewLeft: null,
+  multiviewRight: null,
+  multiviewBack: null,
   history: [],
 
   // Actions
@@ -105,9 +115,13 @@ export const useAppStore = create<AppState>((set) => ({
   setImageEngine: (imageEngine) => set({ imageEngine }),
   setMeshQuality: (meshQuality) => set({ meshQuality }),
   setInputMode: (inputMode) => set((state) => {
-    // If switching to text mode and MV engine is selected, switch to hunyuan3d
-    if (inputMode === 'text' && state.engine3d === 'hunyuan3d_mv') {
+    // If switching to text mode and image-only MV engine is selected, switch to hunyuan3d
+    if (inputMode === 'text' && (state.engine3d === 'hunyuan3d_mv' || state.engine3d === 'gemini_mv')) {
       return { inputMode, engine3d: 'hunyuan3d' };
+    }
+    // If switching to image mode and text-only auto_mv is selected, switch to gemini_mv
+    if (inputMode === 'image' && state.engine3d === 'auto_mv') {
+      return { inputMode, engine3d: 'gemini_mv' };
     }
     return { inputMode };
   }),
@@ -133,6 +147,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   setSegmentedMesh: (segmentedMeshUrl, partCount) => set({ segmentedMeshUrl, partCount }),
 
+  setMultiviewImages: (multiviewFront, multiviewLeft, multiviewRight, multiviewBack) =>
+    set({ multiviewFront, multiviewLeft, multiviewRight, multiviewBack }),
+
   clearResult: () =>
     set({
       generatedImage: null,
@@ -142,6 +159,10 @@ export const useAppStore = create<AppState>((set) => ({
       segmentedMeshUrl: null,
       partCount: null,
       processingTime: null,
+      multiviewFront: null,
+      multiviewLeft: null,
+      multiviewRight: null,
+      multiviewBack: null,
       error: null,
     }),
 
@@ -167,5 +188,9 @@ export const useAppStore = create<AppState>((set) => ({
       segmentedMeshUrl: null,
       partCount: null,
       processingTime: null,
+      multiviewFront: null,
+      multiviewLeft: null,
+      multiviewRight: null,
+      multiviewBack: null,
     }),
 }));

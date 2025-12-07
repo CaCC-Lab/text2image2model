@@ -138,7 +138,7 @@ async def get_config():
         default_mc_resolution=settings.default_mc_resolution,
         mc_resolution_range={"min": 32, "max": 512, "step": 32},
         foreground_ratio_range={"min": 0.5, "max": 1.0, "step": 0.05},
-        available_3d_engines=["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api"],
+        available_3d_engines=["triposr", "hunyuan3d", "hunyuan3d_mv", "hunyuan_api", "tripo_api", "gemini_mv", "auto_mv"],
         available_image_engines=["sdxl", "dalle", "gemini"],
         default_image_engine=settings.default_image_engine,
         default_3d_engine=settings.default_3d_engine,
@@ -194,6 +194,10 @@ async def generate(request: GenerationRequest):
         mesh_glb_url=f"/api/models/{glb_filename}",
         processing_time=result["processing_time"],
         engine_3d=result.get("engine_3d"),
+        multiview_front=result.get("multiview_front"),
+        multiview_left=result.get("multiview_left"),
+        multiview_right=result.get("multiview_right"),
+        multiview_back=result.get("multiview_back"),
     )
 
 
@@ -248,6 +252,7 @@ async def generate_3d_only(request: ThreeDOnlyRequest):
         "type": "3d_only",
         "image": request.image,
         "image_left": request.image_left,
+        "image_right": request.image_right,
         "image_back": request.image_back,
         "remove_background": request.remove_background,
         "foreground_ratio": request.foreground_ratio,
@@ -279,6 +284,10 @@ async def generate_3d_only(request: ThreeDOnlyRequest):
         mesh_glb_url=f"/api/models/{glb_filename}",
         processing_time=result["processing_time"],
         engine_3d=result.get("engine_3d"),
+        multiview_front=result.get("multiview_front"),
+        multiview_left=result.get("multiview_left"),
+        multiview_right=result.get("multiview_right"),
+        multiview_back=result.get("multiview_back"),
     )
 
 

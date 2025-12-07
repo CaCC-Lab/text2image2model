@@ -71,6 +71,11 @@ export interface ThreeDOnlyResponse {
   mesh_glb_url: string;
   processing_time: number;
   engine_3d?: string;
+  // Multi-view images (for gemini_mv/auto_mv engines)
+  multiview_front?: string;
+  multiview_left?: string;
+  multiview_right?: string;
+  multiview_back?: string;
   error?: string;
 }
 
@@ -102,6 +107,7 @@ export async function generateImageOnly(request: {
 export async function generate3DOnly(request: {
   image: string;
   image_left?: string;  // Multi-view: left image
+  image_right?: string;  // Multi-view: right image
   image_back?: string;  // Multi-view: back image
   remove_background: boolean;
   foreground_ratio: number;
