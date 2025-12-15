@@ -3,6 +3,7 @@ export { PromptInput } from './PromptInput';
 export { ImageUpload } from './ImageUpload';
 export { SettingsPanel } from './SettingsPanel';
 export { GenerateButton } from './GenerateButton';
+export { GenerationProgress } from './GenerationProgress';
 export { ImageDisplay } from './ImageDisplay';
 export { ModelViewer } from './ModelViewer';
 export { StatusBar } from './StatusBar';

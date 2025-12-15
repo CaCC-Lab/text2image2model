@@ -17,6 +17,24 @@ interface GenerationResult {
 
 export type InputMode = 'text' | 'image';
 
+// Detailed generation stages for progress display
+export type GenerationStage =
+  | 'idle'
+  | 'image'           // Image generation
+  | '3d_multiview'    // Generating multi-view images
+  | '3d_shape'        // Generating 3D shape
+  | '3d_texture'      // Generating texture
+  | '3d_export';      // Exporting mesh
+
+export const STAGE_INFO: Record<GenerationStage, { label: string; description: string; estimatedTime?: string }> = {
+  idle: { label: '', description: '' },
+  image: { label: '画像生成', description: 'AIが画像を生成しています', estimatedTime: '5〜15秒' },
+  '3d_multiview': { label: 'マルチビュー生成', description: '複数角度の画像を生成中', estimatedTime: '30〜40秒' },
+  '3d_shape': { label: '3D形状生成', description: '3Dメッシュを生成中', estimatedTime: '30〜50秒' },
+  '3d_texture': { label: 'テクスチャ生成', description: 'テクスチャを生成中', estimatedTime: '1〜3分' },
+  '3d_export': { label: 'エクスポート', description: 'メッシュをエクスポート中', estimatedTime: '数秒' },
+};
+
 interface AppState {
   // Input state
   prompt: string;
@@ -31,7 +49,8 @@ interface AppState {
   // UI state
   inputMode: InputMode;  // 'text' or 'image' input mode
   isLoading: boolean;
-  generationStage: 'idle' | 'image' | '3d';  // Progressive generation stage
+  generationStage: GenerationStage;  // Progressive generation stage
+  generationStartTime: number | null;  // Timestamp when generation started
   isSegmenting: boolean;  // Part segmentation in progress
   error: string | null;
   backendConnected: boolean;
@@ -64,7 +83,8 @@ interface AppState {
   setMeshQuality: (quality: MeshQualityType) => void;
   setInputMode: (mode: InputMode) => void;
   setIsLoading: (value: boolean) => void;
-  setGenerationStage: (stage: 'idle' | 'image' | '3d') => void;
+  setGenerationStage: (stage: GenerationStage) => void;
+  startGeneration: () => void;  // Start generation and reset timer
   setError: (error: string | null) => void;
   setGeneratedImage: (image: string | null) => void;
   setBackendConnected: (value: boolean) => void;
@@ -89,6 +109,7 @@ export const useAppStore = create<AppState>((set) => ({
   inputMode: 'text',
   isLoading: false,
   generationStage: 'idle',
+  generationStartTime: null,
   isSegmenting: false,
   error: null,
   backendConnected: false,
@@ -127,6 +148,7 @@ export const useAppStore = create<AppState>((set) => ({
   }),
   setIsLoading: (isLoading) => set({ isLoading }),
   setGenerationStage: (generationStage) => set({ generationStage }),
+  startGeneration: () => set({ isLoading: true, generationStartTime: Date.now(), error: null }),
   setError: (error) => set({ error }),
   setGeneratedImage: (generatedImage) => set({ generatedImage }),
   setBackendConnected: (backendConnected) => set({ backendConnected }),
@@ -179,6 +201,7 @@ export const useAppStore = create<AppState>((set) => ({
       inputMode: 'text',
       isLoading: false,
       generationStage: 'idle',
+      generationStartTime: null,
       isSegmenting: false,
       error: null,
       generatedImage: null,

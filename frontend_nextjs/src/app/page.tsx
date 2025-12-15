@@ -8,6 +8,7 @@ import {
   ImageUpload,
   SettingsPanel,
   GenerateButton,
+  GenerationProgress,
   ImageDisplay,
   ModelViewer,
   StatusBar,
@@ -100,6 +101,7 @@ export default function Home() {
               <>
                 <PromptInput />
                 <GenerateButton />
+                <GenerationProgress />
               </>
             ) : (
               <ImageUpload />

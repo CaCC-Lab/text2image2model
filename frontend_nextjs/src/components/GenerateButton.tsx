@@ -19,10 +19,14 @@ export function GenerateButton() {
   const backendConnected = useAppStore((state) => state.backendConnected);
   const setIsLoading = useAppStore((state) => state.setIsLoading);
   const setGenerationStage = useAppStore((state) => state.setGenerationStage);
+  const startGeneration = useAppStore((state) => state.startGeneration);
   const setError = useAppStore((state) => state.setError);
   const setGeneratedImage = useAppStore((state) => state.setGeneratedImage);
   const setGenerationResult = useAppStore((state) => state.setGenerationResult);
   const setMultiviewImages = useAppStore((state) => state.setMultiviewImages);
+
+  // Check if using multiview engine
+  const isMultiviewEngine = ['auto_mv', 'gemini_mv'].includes(engine3d);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -35,8 +39,8 @@ export function GenerateButton() {
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
+    // Start generation with timer
+    startGeneration();
     setGeneratedImage(null);
 
     let imageBase64: string | null = null;
@@ -45,7 +49,6 @@ export function GenerateButton() {
     try {
       // Stage 1: Generate image
       setGenerationStage('image');
-      toast('画像を生成中...', { icon: '🎨' });
 
       const imageResult = await generateImageOnly({
         prompt,
@@ -62,11 +65,13 @@ export function GenerateButton() {
 
       // Display image immediately
       setGeneratedImage(imageBase64);
-      toast.success(`画像生成完了！ (${imageTime.toFixed(1)}秒)`);
 
-      // Stage 2: Generate 3D model
-      setGenerationStage('3d');
-      toast('3Dモデルを生成中...', { icon: '🧊' });
+      // Stage 2: Generate 3D model (with detailed stages for multiview)
+      if (isMultiviewEngine) {
+        setGenerationStage('3d_multiview');
+      } else {
+        setGenerationStage('3d_shape');
+      }
 
       const threeDResult = await generate3DOnly({
         image: imageBase64,
@@ -82,6 +87,8 @@ export function GenerateButton() {
       }
 
       const totalTime = imageTime + threeDResult.processing_time;
+
+      setGenerationStage('3d_export');
 
       setGenerationResult({
         prompt,
@@ -104,7 +111,7 @@ export function GenerateButton() {
         );
       }
 
-      toast.success(`全処理完了！ (${totalTime.toFixed(1)}秒)`);
+      toast.success(`生成完了！ (${totalTime.toFixed(1)}秒)`);
     } catch (error) {
       const message = error instanceof Error ? error.message : '生成に失敗しました';
       setError(message);
@@ -117,9 +124,14 @@ export function GenerateButton() {
 
   const getButtonText = () => {
     if (!isLoading) return 'テキストから生成';
-    if (generationStage === 'image') return '画像生成中...';
-    if (generationStage === '3d') return '3Dモデル生成中...';
-    return '生成中...';
+    switch (generationStage) {
+      case 'image': return '画像生成中...';
+      case '3d_multiview': return 'マルチビュー生成中...';
+      case '3d_shape': return '3D形状生成中...';
+      case '3d_texture': return 'テクスチャ生成中...';
+      case '3d_export': return 'エクスポート中...';
+      default: return '生成中...';
+    }
   };
 
   return (
