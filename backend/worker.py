@@ -29,6 +29,13 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
     CUDA worker process that handles all GPU operations.
     Runs in a separate process to avoid asyncio interference.
     """
+    import warnings
+    # Suppress known harmless warnings from external libraries
+    warnings.filterwarnings("ignore", message=".*torch.range is deprecated.*")
+    warnings.filterwarnings("ignore", message=".*timestep schedule.*")
+    warnings.filterwarnings("ignore", category=UserWarning, module="diffusers")
+    warnings.filterwarnings("ignore", category=FutureWarning)
+
     import torch
     import rembg
     from diffusers import StableDiffusionXLPipeline, EulerDiscreteScheduler
@@ -115,9 +122,14 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                 # Try to load texture generator (requires custom_rasterizer)
                 try:
                     from hy3dgen.texgen import Hunyuan3DPaintPipeline
-                    hunyuan_texgen = Hunyuan3DPaintPipeline.from_pretrained(
-                        settings.hunyuan3d_model
-                    )
+                    import warnings
+                    # Suppress VAE safetensors warning and UNet type mismatch warning
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message=".*safetensors.*")
+                        warnings.filterwarnings("ignore", message=".*Expected types for unet.*")
+                        hunyuan_texgen = Hunyuan3DPaintPipeline.from_pretrained(
+                            settings.hunyuan3d_model
+                        )
                     worker_logger.info("Hunyuan3D-2 texture generator loaded!")
                 except Exception as e:
                     worker_logger.warning(f"Texture generator not available: {e}")
@@ -149,9 +161,14 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
                 if hunyuan_texgen is None:
                     try:
                         from hy3dgen.texgen import Hunyuan3DPaintPipeline
-                        hunyuan_texgen = Hunyuan3DPaintPipeline.from_pretrained(
-                            settings.hunyuan3d_model
-                        )
+                        import warnings
+                        # Suppress VAE safetensors warning and UNet type mismatch warning
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", message=".*safetensors.*")
+                            warnings.filterwarnings("ignore", message=".*Expected types for unet.*")
+                            hunyuan_texgen = Hunyuan3DPaintPipeline.from_pretrained(
+                                settings.hunyuan3d_model
+                            )
                         worker_logger.info("Hunyuan3D-2 texture generator loaded!")
                     except Exception as e:
                         worker_logger.warning(f"Texture generator not available: {e}")
@@ -195,7 +212,11 @@ def cuda_worker_process(task_q: mp.Queue, result_q: mp.Queue):
             nonlocal pipe
             if pipe is not None and hasattr(pipe, 'device') and str(pipe.device) != 'cpu':
                 worker_logger.info("[Memory] Moving SDXL to CPU to free VRAM...")
-                pipe.to("cpu")
+                # Suppress fp16 CPU warning - we'll move it back to GPU before inference
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*float16.*cpu.*")
+                    pipe.to("cpu")
                 import gc
                 gc.collect()
                 torch.cuda.empty_cache()
